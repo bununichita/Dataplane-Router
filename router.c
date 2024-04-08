@@ -1,7 +1,11 @@
-#include <arpa/inet.h> 
+#include <stdio.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <string.h>
 #include "queue.h"
 #include "lib.h"
 #include "protocols.h"
+
 
 #define ETHERTYPE_IP 0x0800
 
@@ -83,52 +87,65 @@ int main(int argc, char *argv[])
 		sending a packet on the link, */
 
 		/* Check if we got an IPv4 packet */
-		if (eth_hdr->ether_type != ntohs(ETHERTYPE_IP)) {
+		if (ntohs(eth_hdr->ether_type) != ETHERTYPE_IP) {
 			printf("Ignored non-IPv4 packet\n");
 			continue;
 		}
 
 		/* TODO 2.1: Check the ip_hdr integrity using ip_checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)) */
 
-		uint16_t csum = ntohs(ip_hdr->check);
+		uint16_t csum = ip_hdr->check;
 		ip_hdr->check = 0;
-		uint16_t calculated_checksum = checksum((uint16_t *)ip_hdr, sizeof(struct iphdr));
+		uint16_t calculated_checksum = ntohs(checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)));
 
 		
 		if (csum != calculated_checksum) {
+			printf("Checksum failed\n");
 			continue;
 		}
 
-		// ip_hdr->check = csum;
+		ip_hdr->check = csum;
 
 		/* TODO 2.2: Call get_best_route to find the most specific route, continue; (drop) if null */
 		struct route_table_entry *route = get_best_route(ip_hdr->daddr);
-		if (!route)
+		if (!route) {
+			printf("Destination unreachable\n");
 			continue;
+		}
 		/* TODO 2.3: Check TTL >= 1. Update TLL. Update checksum  */
-		int ttl = ip_hdr->ttl;
-		if (ttl >= 1) {
-			ip_hdr->ttl--;
-		} else
+		if (ip_hdr->ttl < 1) {
+			printf("TTL < 1\n");
 			continue;
+		}
+		ip_hdr->ttl--;
 		uint32_t next_hop = route->next_hop;
 		ip_hdr->check = 0;
-		int csum2 = htons(checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)));
-		ip_hdr->check = csum2;
+		ip_hdr->check = htons(checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)));
 		/* TODO 2.4: Update the ethernet addresses. Use get_mac_entry to find the destination MAC
 		 * address. Use get_interface_mac(m.interface, uint8_t *mac) to
 		 * find the mac address of our interface. */
 		  
-		uint8_t mac[6];
-		get_interface_mac(interface, mac);
-		struct arp_table_entry *ret2 = get_mac_entry(ip_hdr->daddr);
+		struct arp_table_entry *ret2 = get_mac_entry(next_hop);
+		
+		
+		
 
-		for (int i = 0; i < 6; i++) {
-			eth_hdr->ether_shost[i] = mac[i];
-			eth_hdr->ether_dhost[i] = arp_table->mac[i];
+		if (!ret2) {
+			printf("No MAC entry found\n");
+			continue;
 		}
 
-		send_to_link(interface, buf, len);
+		get_interface_mac(route->interface, eth_hdr->ether_shost);
+
+		// for (int i = 0; i < 6; i++) {
+		// 	eth_hdr->ether_shost[i] = mac[i];
+		// 	eth_hdr->ether_dhost[i] = arp_table->mac[i];
+		// }
+
+		memcpy (eth_hdr->ether_dhost, ret2->mac, sizeof(ret2->mac));
+		memcpy (eth_hdr->ether_shost, ret2->mac, sizeof(ret2->mac));
+
+		send_to_link(route->interface, buf, len);
 
 	}
 }
