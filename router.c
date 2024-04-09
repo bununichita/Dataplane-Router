@@ -48,6 +48,88 @@ struct arp_table_entry *get_mac_entry(uint32_t given_ip) {
 	return NULL;
 }
 
+int compare_masks(const void *r1, const void *r2)
+{
+	struct route_table_entry route1, route2;
+
+	route1 = *(struct route_table_entry *)r1;
+	route2 = *(struct route_table_entry *)r2;
+	
+
+	return route2.mask - route1.mask;
+}
+
+char *create_icmp(struct ether_header *eth_hdr, struct iphdr *ip_hdr, uint8_t type, char *payload, ssize_t len)
+{
+	struct icmphdr *header = malloc(sizeof(struct icmphdr));
+	char *buf = malloc(sizeof(struct icmphdr) + sizeof(struct iphdr) + 64);
+	header->checksum = 0;
+	header->type = type;
+	header->code = 0;
+	header->un.echo.id = 0;
+	header->un.echo.sequence = 0;
+
+	memcpy((void *)buf, (const void *)header, sizeof(struct icmphdr));
+	memcpy((void *)(buf + sizeof(struct icmphdr)), (const void *)ip_hdr, sizeof(struct iphdr));
+	memcpy((void *)(buf + sizeof(struct icmphdr) + sizeof(struct iphdr)), (const void *)payload, 64);
+
+
+	header->checksum = htons(checksum((uint16_t *)buf, len));
+	return buf;
+}
+
+char *create_ip_hdr(char *interface_ip, uint32_t daddr)
+{
+	struct iphdr *header = malloc(sizeof(struct iphdr));
+	header->ihl = 5;
+	header->version = 4;
+	header->tos = 0;
+	header->tot_len = htons(2 * sizeof(struct iphdr) + sizeof(struct icmphdr) + 64);
+	header->id = htons(1);
+	header->frag_off = 0;
+	header->ttl = 100;
+	header->protocol = 1; //we don't care
+	header->saddr = inet_addr(interface_ip);
+	header->daddr = daddr;
+	
+	
+	header->check = 0;
+	header->check = htons(checksum((uint16_t *)header, sizeof(struct iphdr)));
+	return (char *)header; 
+
+
+}
+
+char *create_eth_hdr(int interface, struct ether_header *eth_hdr)
+{
+	struct ether_header *header = malloc(sizeof(struct ether_header));
+	header->ether_type = htons(ETHERTYPE_IP);
+	// header->ether_shost[] = get_interface_mac();
+
+	get_interface_mac(interface, header->ether_shost);
+	memcpy((void *)header->ether_dhost, (const void *)eth_hdr->ether_shost, 6 * sizeof(uint8_t));
+	return (char *)header;
+}
+
+void send_icmp(struct ether_header *eth_hdr, struct iphdr *ip_hdr,
+uint8_t type, char *buf, ssize_t len, int interface)
+{
+	ssize_t bufsize = sizeof(struct ether_header) + 2 * sizeof(struct iphdr) + sizeof(struct icmphdr) + 64;
+	char *new_buf = malloc(bufsize);
+	char *payload = buf + sizeof(struct ether_header) + sizeof(struct iphdr);
+	char *icmp = create_icmp(eth_hdr, ip_hdr, type, payload, len);
+	ssize_t icmp_size = sizeof(struct icmphdr) + sizeof(struct iphdr) + 64;
+	char *first_ipv4 = create_ip_hdr(get_interface_ip(interface), ip_hdr->saddr);
+	char *new_eth_hdr = create_eth_hdr(interface, eth_hdr);
+	char *copy_addr = new_buf;
+	memcpy((void *)copy_addr, (const void *)new_eth_hdr, sizeof(struct ether_header));
+	copy_addr += sizeof(struct ether_header);
+	memcpy((void *)copy_addr, (const void *)first_ipv4, sizeof(struct iphdr));
+	copy_addr += sizeof(struct iphdr);
+	memcpy((void *)copy_addr, (const void *)icmp, icmp_size);
+	send_to_link(interface, new_buf, bufsize);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -68,9 +150,8 @@ int main(int argc, char *argv[])
 	rtable_len = read_rtable(argv[1], rtable);
 	arp_table_len = parse_arp_table( "arp_table.txt", arp_table);
 
+	qsort(rtable, rtable_len, sizeof(struct route_table_entry), compare_masks);
 	
-
-
 	while (1) {
 
 		int interface;
@@ -108,13 +189,20 @@ int main(int argc, char *argv[])
 
 		/* TODO 2.2: Call get_best_route to find the most specific route, continue; (drop) if null */
 		struct route_table_entry *route = get_best_route(ip_hdr->daddr);
+
+		uint8_t icmp_type;
+
 		if (!route) {
 			printf("Destination unreachable\n");
+			icmp_type = 3;
+			send_icmp(eth_hdr, ip_hdr, icmp_type, buf, len, interface);
 			continue;
 		}
 		/* TODO 2.3: Check TTL >= 1. Update TLL. Update checksum  */
-		if (ip_hdr->ttl < 1) {
+		if (ip_hdr->ttl <= 1) {
 			printf("TTL < 1\n");
+			icmp_type = 11;
+			send_icmp(eth_hdr, ip_hdr, icmp_type, buf, len, interface);
 			continue;
 		}
 		ip_hdr->ttl--;
