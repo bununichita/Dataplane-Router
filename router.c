@@ -130,6 +130,34 @@ uint8_t type, char *buf, ssize_t len, int interface)
 	send_to_link(interface, new_buf, bufsize);
 }
 
+void icmp_reply(char *buf, int interface, ssize_t len)
+{
+	struct ether_header *eth_hdr = (struct ether_header *)buf;
+	struct iphdr *ip_hdr = (struct iphdr *)(buf + sizeof(struct ether_header));
+	struct icmphdr *icmp_hdr = (struct icmphdr *)(buf + sizeof(struct ether_header) + sizeof(struct iphdr));
+	uint8_t aux[6];
+	memcpy((void *)aux, (const void *)(eth_hdr->ether_dhost), 6);
+	memcpy((void *)(eth_hdr->ether_dhost), (const void *)(eth_hdr->ether_shost), 6);
+	memcpy((void *)eth_hdr->ether_shost, (const void *)aux, 6);
+
+	ip_hdr->daddr = ip_hdr->saddr;
+	ip_hdr->saddr = inet_addr(get_interface_ip(interface));
+	ip_hdr->check = 0;
+	ip_hdr->check = htons(checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)));
+
+
+	icmp_hdr->type = 0;
+	icmp_hdr->checksum = 0;
+	icmp_hdr->checksum =
+		htons(checksum((uint16_t *)icmp_hdr,
+					   len - sizeof(struct ether_header)) -
+					   sizeof(struct iphdr));
+
+	send_to_link(interface, buf, len);
+
+	
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -166,6 +194,7 @@ int main(int argc, char *argv[])
 		any header field which has more than 1 byte will need to be converted to
 		host order. For example, ntohs(eth_hdr->ether_type). The oposite is needed when
 		sending a packet on the link, */
+		
 
 		/* Check if we got an IPv4 packet */
 		if (ntohs(eth_hdr->ether_type) != ETHERTYPE_IP) {
@@ -186,6 +215,16 @@ int main(int argc, char *argv[])
 		}
 
 		ip_hdr->check = csum;
+
+		//echo ICMP
+
+		if (ip_hdr->protocol == 1 && ip_hdr->daddr == inet_addr(get_interface_ip(interface))) {
+			struct icmphdr *icmp_hdr = (struct icmphdr *)(buf + sizeof(struct ether_header) + sizeof(struct iphdr));
+			if (icmp_hdr->type == 8) {
+				icmp_reply(buf, interface, len);
+				continue;
+			}
+		}
 
 		/* TODO 2.2: Call get_best_route to find the most specific route, continue; (drop) if null */
 		struct route_table_entry *route = get_best_route(ip_hdr->daddr);
