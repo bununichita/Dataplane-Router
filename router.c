@@ -8,6 +8,9 @@
 
 
 #define ETHERTYPE_IP 0x0800
+#define ETHERTYPE_ARP 0x806
+#define ARP_OP_REQUEST 1
+#define ARP_OP_REPLY 2
 
 /* Routing table */
 struct route_table_entry *rtable;
@@ -95,7 +98,7 @@ char *create_ip_hdr(char *interface_ip, uint32_t daddr)
 	
 	header->check = 0;
 	header->check = htons(checksum((uint16_t *)header, sizeof(struct iphdr)));
-	return (char *)header; 
+	return (char *)header;
 
 
 }
@@ -159,6 +162,98 @@ void icmp_reply(char *buf, int interface, ssize_t len)
 }
 
 
+
+void send_arp_request(struct route_table_entry *best_route, int interface)
+{
+	
+
+	int len = sizeof(struct ether_header) + sizeof(struct arp_header);
+	char *buf = malloc(len);
+	struct ether_header *eth_hdr = (struct ether_header *)buf;
+	struct arp_header *arp_hdr =
+		(struct arp_header *)(buf + sizeof(struct ether_header));
+
+	// if (inet_addr(get_interface_ip(interface)) != arp_hdr->tpa) {
+	// 	return;
+	// }
+
+	char *alpha_mac = "ff:ff:ff:ff:ff:ff";
+	hwaddr_aton(alpha_mac, eth_hdr->ether_dhost);
+	get_interface_mac(best_route->interface, eth_hdr->ether_shost);
+	eth_hdr->ether_type = htons(ETHERTYPE_ARP);
+
+	arp_hdr->htype = htons(1);
+	arp_hdr->ptype = htons(ETHERTYPE_IP);
+	arp_hdr->hlen = 6;
+	arp_hdr->plen = 4;
+	arp_hdr->op = htons(1);
+	arp_hdr->spa = inet_addr(get_interface_ip(best_route->interface));
+	arp_hdr->tpa = best_route->next_hop;
+	get_interface_mac(best_route->interface, arp_hdr->sha);
+	char *zero_mac = "00:00:00:00:00:00";
+	hwaddr_aton(zero_mac, arp_hdr->tha);
+
+	send_to_link(best_route->interface, buf, len);
+}
+
+
+
+void send_arp_reply(char *buf, int len, struct arp_table_entry *mac_table,
+					int interface, int *mac_table_len)
+{
+	struct ether_header *eth_hdr = (struct ether_header *)buf;
+	struct arp_header *arp_hdr =
+		(struct arp_header *)(buf + sizeof(struct ether_header));
+
+	uint8_t mac[6];
+	get_interface_mac(interface, mac);
+	memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, 6);
+	memcpy(eth_hdr->ether_shost, mac, 6);
+
+	arp_hdr->op = htons(2);
+	uint32_t aux = arp_hdr->spa;
+	arp_hdr->spa = arp_hdr->tpa;
+	arp_hdr->tpa = aux;
+
+	memcpy(arp_hdr->tha, arp_hdr->sha, 6);
+	memcpy(arp_hdr->sha, mac, 6);
+
+	send_to_link(interface, buf, len);
+}
+
+void update_arp_table(char *buf)
+{
+	struct arp_header *arp_hdr = (struct arp_header *)(buf + sizeof(struct ether_header));
+	struct arp_table_entry new_ent;
+	new_ent.ip = arp_hdr->spa;
+	memcpy((void *)new_ent.mac, (const void *)arp_hdr->sha, 6);
+	arp_table[arp_table_len] = new_ent;
+	arp_table_len++;
+}
+
+void send_queue(queue q, char *buf, int interface)
+{
+	printf("DEQUEUE\n");
+	char *old_buf = (char *)queue_deq(q);
+	struct iphdr *old_ip = (struct iphdr *)(old_buf + sizeof(struct ether_header));
+	struct ether_header *old_eth = (struct ether_header *)old_buf;
+	struct arp_header *arp_hdr = (struct arp_header *)(buf + sizeof(struct ether_header));
+	struct iphdr *ip_hdr = (struct iphdr *)(buf + sizeof(struct ether_header));
+
+	// struct route_table_entry *route = get_best_route(ip_hdr->daddr);
+
+	memcpy((void *)old_eth->ether_shost, (const void *)arp_hdr->tha, 6);
+	memcpy((void *)old_eth->ether_dhost, arp_hdr->sha, 6);
+
+	////////////////////////////////////////////////////////////////////////
+	// nu sunt sigur daca interfata e buna
+	////////////////////////////////////////////////////////////////////////
+	ssize_t len = sizeof(struct ether_header) + ntohs(old_ip->tot_len);
+	send_to_link(interface, old_buf, len);
+}
+
+
+
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -176,7 +271,11 @@ int main(int argc, char *argv[])
 	
 	/* Read the static routing table and the MAC table */
 	rtable_len = read_rtable(argv[1], rtable);
-	arp_table_len = parse_arp_table( "arp_table.txt", arp_table);
+
+
+	// arp_table_len = parse_arp_table( "arp_table.txt", arp_table);
+
+	queue q = queue_create();
 
 	qsort(rtable, rtable_len, sizeof(struct route_table_entry), compare_masks);
 	
@@ -189,7 +288,7 @@ int main(int argc, char *argv[])
 		DIE(interface < 0, "recv_from_any_links");
 
 		struct ether_header *eth_hdr = (struct ether_header *) buf;
-		struct iphdr *ip_hdr = (struct iphdr *)(buf + sizeof(struct ether_header));
+		
 		/* Note that packets received are in network order,
 		any header field which has more than 1 byte will need to be converted to
 		host order. For example, ntohs(eth_hdr->ether_type). The oposite is needed when
@@ -197,12 +296,34 @@ int main(int argc, char *argv[])
 		
 
 		/* Check if we got an IPv4 packet */
-		if (ntohs(eth_hdr->ether_type) != ETHERTYPE_IP) {
-			printf("Ignored non-IPv4 packet\n");
-			continue;
+		if (ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP) {
+			struct arp_header *arp_hdr = (struct arp_header *)(buf + sizeof(struct ether_header));
+
+			printf("arp_mare\n");
+
+			printf("op = %hu\n", arp_hdr->op);
+
+
+			if (ntohs(arp_hdr->op) == 2) {
+				printf("arp_reply\n");
+				update_arp_table(buf);
+				if (!queue_empty(q)) {
+					send_queue(q, buf, interface);
+				}
+				continue;
+			} else if (ntohs(arp_hdr->op) == 1) {
+				printf("arp_request\n");
+				// arp_reply(buf, interface);
+				send_arp_reply(buf, len, arp_table, interface, &arp_table_len);
+				continue;
+			} else {
+				printf("arp_prost\n");
+				continue;
+			}
 		}
 
 		/* TODO 2.1: Check the ip_hdr integrity using ip_checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)) */
+		struct iphdr *ip_hdr = (struct iphdr *)(buf + sizeof(struct ether_header));
 
 		uint16_t csum = ip_hdr->check;
 		ip_hdr->check = 0;
@@ -228,6 +349,7 @@ int main(int argc, char *argv[])
 
 		/* TODO 2.2: Call get_best_route to find the most specific route, continue; (drop) if null */
 		struct route_table_entry *route = get_best_route(ip_hdr->daddr);
+		// route.
 
 		uint8_t icmp_type;
 
@@ -253,12 +375,23 @@ int main(int argc, char *argv[])
 		 * find the mac address of our interface. */
 		  
 		struct arp_table_entry *ret2 = get_mac_entry(next_hop);
+
+		// get_interface_mac()
 		
 		
 		
 
 		if (!ret2) {
-			printf("No MAC entry found\n");
+			printf("enqueue\n");
+
+			char *old_buf = malloc(len);
+			memcpy((void *)old_buf, (const void *)buf, len);
+
+			
+			queue_enq(q, (void *)old_buf);
+			// arp_request(route);
+			send_arp_request(route, interface);
+
 			continue;
 		}
 

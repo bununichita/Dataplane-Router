@@ -1,16 +1,48 @@
 Setting up interface: rr-0-1
 Setting up interface: r-0
 Setting up interface: r-1
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
+arp_mare
+op = 256
+arp_request
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 256
+arp_request
 Checksum failed
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+arp_mare
+op = 512
+arp_reply
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 512
+arp_reply
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 256
+arp_request
 TTL < 1
 Destination unreachable
-Ignored non-IPv4 packet
-Ignored non-IPv4 packet
+arp_mare
+op = 256
+arp_request
