@@ -1,0 +1,55 @@
+# Bunu Nichita-Adrian 323CA nichita_adrian.bunu@stud.acs.upb.ro
+# Dataplane Router
+
+Programul simuleaza functionalitatea unui router ce suporta
+protocoalele IPv4, ICMP, ARP.
+Router-ul asteapta pachete (recv_from_any_link()), apoi le
+prelucreaza.
+
+Tabelele de routare ale celor doua routere sunt sortate dupa
+prefix, iar daca prefixele sunt egale, dupa masca.
+
+Avand tabelele sortate, putem cauta destinatia cu ajutorul
+algoritmului de cautare binara (get_best_route()).
+
+La inceputul programului, tabela arp este goala, urmand sa
+o prelucram cu ajutorul protocolului ARP.
+
+Modul de prelucrare:
+
+Extragem header-ul de ethernet.
+
+Daca tipul pachetului de nivel 3 este ARP, verificam daca
+acesta este de tip REQUEST sau REPLY.
+In cazul REPLY adaugam o intrare in tabela arp, deoarece am
+gasit adresa hardware cautata, si vom trimite pachetul destinat
+adresei mac gasite.
+In cazul REQUEST vom gasi adresa hardware cautata
+(get_interface_mac()) si vom trimite inapoi pachetul cu noua
+informatie.
+
+Daca pachetul nu este ARP, vom retine headerul IP in "ip_hdr".
+
+Cu ajutorul checksum-ului verificam daca au fost erori pe
+parcursul transmisiei. Daca da, vom arunca pachetul.
+
+Daca pachetul IP contine un pachet ICMP si noi suntem adresa
+destinatie, vom lua acest lucru la cunostinta si vom instiinta
+routerul care a aruncat pachetul ca am facut acest lucru.
+
+In cazul in care pachetul nu contine un pachet ICMP:
+-daca nu exista cale pana la destinatie trimitem un pachet ICMP
+cu type-ul "Destination unreachable"
+-daca time-to-live a ajuns la 1, trimitem un pachet ICMP cu
+type-ul "Time exceeded"
+
+Daca nu stim adresa hardware destinatie pt pachetul curent, vom
+baga in coada tot buffer-ul aferent si vom face un broadcast
+pentru a o afla.
+
+In cazul in care niciuna dintre conditiile de mai sus nu este
+indeplinita, trimitem pachetul mai departe.
+
+
+Mentionez ca am tratat toate subcerintele.
+100 / 100 cu testare locala
