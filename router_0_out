@@ -1,0 +1,48 @@
+Setting up interface: rr-0-1
+Setting up interface: r-0
+Setting up interface: r-1
+arp_mare
+op = 256
+arp_request
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 256
+arp_request
+Checksum failed
+enqueue
+arp_mare
+op = 512
+arp_reply
+DEQUEUE
+arp_mare
+op = 512
+arp_reply
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 512
+arp_reply
+arp_mare
+op = 256
+arp_request
+arp_mare
+op = 256
+arp_request
+TTL < 1
+Destination unreachable
+arp_mare
+op = 256
+arp_request

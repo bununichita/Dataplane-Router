@@ -24,33 +24,70 @@ int arp_table_len;
  Returns a pointer (eg. &rtable[i]) to the best matching route, or NULL if there
  is no matching route.
 */
-struct route_table_entry *get_best_route(uint32_t ip_dest, int left, int right) {
-	/* TODO 2.2: Implement the LPM algorithm */
-	/* We can iterate through rtable for (int i = 0; i < rtable_len; i++). Entries in
-	 * the rtable are in network order already */
-	// for (int i = 0; i < rtable_len; i++) {
-	// 	if (rtable[i].prefix == (ip_dest & rtable[i].mask)) {
-	// 		return &rtable[i];
-	// 	}
-	// }
-	// return NULL;
+// struct route_table_entry *get_best_route(uint32_t ip_dest, int left, int right) {
+// 	/* TODO 2.2: Implement the LPM algorithm */
+// 	/* We can iterate through rtable for (int i = 0; i < rtable_len; i++). Entries in
+// 	 * the rtable are in network order already */
+// 	for (int i = 0; i < rtable_len; i++) {
+// 		if (rtable[i].prefix == (ip_dest & rtable[i].mask)) {
+// 			return &rtable[i];
+// 		}
+// 	}
+// 	return NULL;
 
-	if (left >= right) {
-		return NULL;
+// 	// if (left >= right) {
+// 	// 	return NULL;
+// 	// }
+
+// 	// int mid = (left + right) / 2;
+// 	// if (rtable[mid].prefix == (ip_dest & rtable[mid].mask)) {
+// 	// 	// return get_biggest_mask();
+// 	// 	return &rtable[mid];
+// 	// }
+
+// 	// if (rtable[mid].prefix < (ip_dest & rtable[mid].mask)) {
+// 	// 	return get_best_route(ip_dest, mid + 1, right);
+// 	// } else {
+// 	// 	return get_best_route(ip_dest, left, mid - 1);
+// 	// }
+
+
+// }
+
+struct route_table_entry *get_best_route(uint32_t ip_dest, int left, int right, struct route_table_entry *best_so_far)
+{
+	if (left > right) {
+		return best_so_far;
 	}
 
 	int mid = (left + right) / 2;
-	if (rtable[mid].prefix == (ip_dest & rtable[mid].mask)) {
-		// return get_biggest_mask();
-		return &rtable[mid];
+
+	if ((ip_dest & rtable[mid].mask) == rtable[mid].prefix) {
+		if (best_so_far) {
+			if (ntohl(rtable[mid].mask) > ntohl(best_so_far->mask)) {
+				best_so_far = &rtable[mid];
+			}
+		} else {
+			best_so_far = &rtable[mid];
+		}
 	}
 
-	if (rtable[mid].prefix < (ip_dest & rtable[mid].mask)) {
-		return get_best_route(ip_dest, mid + 1, right);
-	} else {
-		return get_best_route(ip_dest, left, mid - 1);
-	}
+	if (ntohl(ip_dest) < ntohl(rtable[mid].prefix)) {
+			return get_best_route(ip_dest, left, mid - 1, best_so_far);
+		} else {
+			return get_best_route(ip_dest, mid + 1, right, best_so_far);
+		}
+}
 
+int compare_ips(const void *r1, const void *r2)
+{
+	struct route_table_entry *route1 = (struct route_table_entry *)r1;
+	struct route_table_entry *route2 = (struct route_table_entry *)r2;
+
+	if (!(ntohl(route1->prefix) - ntohl(route2->prefix))) {
+		return (ntohl(route1->mask) - ntohl(route2->mask));
+	}
+	return ntohl(route1->prefix) - ntohl(route2->prefix);
 
 }
 
@@ -69,27 +106,96 @@ struct arp_table_entry *get_mac_entry(uint32_t given_ip) {
 	return NULL;
 }
 
-int compare_masks(const void *r1, const void *r2)
-{
-	struct route_table_entry route1, route2;
+// int compare_masks(const void *r1, const void *r2)
+// {
+// 	struct route_table_entry route1, route2;
 
-	route1 = *(struct route_table_entry *)r1;
-	route2 = *(struct route_table_entry *)r2;
+// 	route1 = *(struct route_table_entry *)r1;
+// 	route2 = *(struct route_table_entry *)r2;
 	
 
-	return route2.mask - route1.mask;
-}
+// 	return route2.mask - route1.mask;
+// }
 
-int compare_ips(const void *r1, const void *r2)
-{
-	struct route_table_entry route1, route2;
+// int compare_ips(const void *r1, const void *r2)
+// {
+// 	struct route_table_entry route1, route2;
 
-	route1 = *(struct route_table_entry *)r1;
-	route2 = *(struct route_table_entry *)r2;
+// 	route1 = *(struct route_table_entry *)r1;
+// 	route2 = *(struct route_table_entry *)r2;
 	
 
-	return route1.prefix - route2.prefix;
-}
+// 	return route1.prefix - route2.prefix;
+// }
+
+// struct route_table_entry *get_best_route(uint32_t ip_dest) {
+// 	/* Implement the LPM algorithm */
+
+// 	//I use binary search to find the best route
+
+// 	int left = 0;
+// 	int right = rtable_len - 1;
+// 	int mid = (left + right) / 2;
+
+// 	struct route_table_entry *best_route = NULL;
+
+// 	while (left <= right) {
+
+// 		//I sort descending by prefix
+// 		//If the prefixes match, I sort descending by mask
+// 		if ((ip_dest & rtable[mid].mask) == rtable[mid].prefix) {
+// 			if (best_route != NULL) {
+// 				if (ntohl(rtable[mid].mask) > ntohl(best_route->mask)) {
+// 					best_route = &rtable[mid];
+// 				}
+// 			}
+
+
+// 			if (best_route == NULL) {
+// 				best_route = &rtable[mid];
+// 			}
+// 		}
+		
+// 		if (ntohl(rtable[mid].prefix) < ntohl(ip_dest)) {
+// 			left = mid + 1;
+// 		} else {
+// 			right = mid - 1;
+// 		}
+
+// 		mid = (left + right) / 2;
+// 	}
+
+// 	return best_route;
+// }
+
+// int compare_rtable(const void *a, const void *b) {
+
+// 	const struct route_table_entry *entry_a = (struct route_table_entry *)a;
+// 	const struct route_table_entry *entry_b = (struct route_table_entry *)b;
+
+// 	// Sort by prefix in descending order
+	
+// 	if (ntohl(entry_a->prefix) < ntohl(entry_b->prefix)) {
+// 		return -1;
+// 	}
+
+// 	if (ntohl(entry_a->prefix) > ntohl(entry_b->prefix)) {
+// 		return 1;
+// 	}
+
+// 	// Sort by mask in descending order
+
+// 	if (ntohl (entry_a->mask) < ntohl(entry_b->mask)) {
+// 		return -1;
+// 	} else 
+
+// 	if (ntohl (entry_a->mask) > ntohl(entry_b->mask))
+// 		return 1;
+// 	else 
+
+// 	// The routes are equal
+// 	return 0;
+// }
 
 char *create_icmp(struct ether_header *eth_hdr, struct iphdr *ip_hdr, uint8_t type, char *payload, ssize_t len)
 {
@@ -444,7 +550,7 @@ int main(int argc, char *argv[])
 		}
 
 		/* TODO 2.2: Call get_best_route to find the most specific route, continue; (drop) if null */
-		struct route_table_entry *route = get_best_route(ip_hdr->daddr, 0, rtable_len);
+		struct route_table_entry *route = get_best_route(ip_hdr->daddr, 0, rtable_len - 1, NULL);
 		// route.
 
 		uint8_t icmp_type;
